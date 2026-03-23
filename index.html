@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Consulta de CNPJs - BY HS </title>
+<style>
+body { font-family: Arial; background:#000; color:#bdb76b; padding:20px; }
+h2{ text-align:center; font-size:28px; transition: all 0.5s; }
+table { width:100%; border-collapse:collapse; margin-top:20px; background:#111; transition: all 0.5s; }
+th, td { border:1px solid #556b2f; padding:8px; text-align:left; vertical-align:top; color:#bdb76b; transition: all 0.5s; }
+th { background:#222; }
+tr:hover { cursor:pointer; }
+.detalhes { background:#111; padding:10px; border:1px solid #556b2f; margin-top:10px; }
+.campo { font-weight:bold; color:#bdb76b; }
+.valor { color:#fff; margin-left:5px; }
+textarea { width:100%; height:70px; margin-top:10px; background:#000; color:#bdb76b; border:1px solid #556b2f; padding:10px; font-family:monospace; font-size:14px; }
+button { margin-top:10px; padding:5px 10px; cursor:pointer; background:#000; color:#bdb76b; border:1px solid #556b2f; transition:0.3s; }
+button:hover { background:#556b2f; color:#000; }
+label{ display:block; margin-top:20px; margin-bottom:5px; }
+.salvar-btn { margin-left:10px; }
+</style>
+</head>
+<body>
+<h2 id="titulo">Consulta de CNPJs - BY HS </h2>
+
+<label for="conteudo">Cole aqui seu arquivo TXT:</label>
+<textarea id="conteudo" placeholder="Cole o conteúdo do seu arquivo aqui..."></textarea>
+
+<table id="tabela">
+<tr>
+<th>CNPJ</th>
+<th>Razão Social</th>
+<th>Nome Fantasia</th>
+</tr>
+</table>
+
+<script>
+let trAberto = null;
+
+// Cores militares do Brasil
+const coresMilitares = ["#556b2f","#6b8e23","#808000","#228b22","#2e8b57"];
+let corIndex = 0;
+setInterval(()=>{
+    const titulo = document.getElementById("titulo");
+    const tabela = document.getElementById("tabela");
+    titulo.style.color = coresMilitares[corIndex];
+    tabela.querySelectorAll("th, td").forEach(cell => {
+        cell.style.color = coresMilitares[corIndex];
+        cell.style.borderColor = coresMilitares[corIndex];
+    });
+    corIndex = (corIndex + 1) % coresMilitares.length;
+},5000);
+
+function validarCNPJ(cnpj) {
+    cnpj = cnpj.replace(/\D/g,'');
+    if(cnpj.length !== 14) return false;
+    let numeros = cnpj.split('').map(Number);
+    let pesos1 = [5,4,3,2,9,8,7,6,5,4,3,2];
+    let soma = numeros.slice(0,12).reduce((acc,n,i)=>acc+n*pesos1[i],0);
+    let resto = soma % 11;
+    let dig1 = resto < 2 ? 0 : 11 - resto;
+    if(dig1 !== numeros[12]) return false;
+    let pesos2 = [6,5,4,3,2,9,8,7,6,5,4,3,2];
+    soma = numeros.slice(0,13).reduce((acc,n,i)=>acc+n*pesos2[i],0);
+    resto = soma % 11;
+    let dig2 = resto < 2 ? 0 : 11 - resto;
+    return dig2 === numeros[13];
+}
+
+function formatarCNPJ(cnpj){
+    return cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/,"$1.$2.$3/$4-$5");
+}
+
+async function consultarCNPJ(cnpj) {
+    const apiKey = "3626fc37320422eda3364a02df786e7a77740c6beabd20bcfcb353ec720a71139a8db62add18ec5447812352550e715dc53f0956872f27285673ab0905e9f98d";
+    const res = await fetch(`https://api.casadosdados.com.br/v4/cnpj/${cnpj}`, {
+        method: "GET",
+        headers: { "Content-Type":"application/json", "api-key": apiKey }
+    });
+    if(!res.ok) throw new Error(`Erro na API: ${res.status}`);
+    return await res.json();
+}
+
+function salvarObservacao(el){ localStorage.setItem("obs_"+el.dataset.cnpj, el.value); }
+function carregarObservacoes(){ 
+    document.querySelectorAll("textarea").forEach(t=>{
+        let v = localStorage.getItem("obs_"+t.dataset.cnpj);
+        if(v) t.value = v;
+    });
+}
+function formatarTelefone(tel){ return tel.replace(/\D/g,''); }
+
+function criarDetalhesHTML(data){
+    let obs = localStorage.getItem("obs_"+data.cnpj) || "";
+    let html = '<div class="detalhes">';
+    html += `<div><span class="campo">CNPJ:</span><span class="valor">${data.cnpj}</span></div>`;
+    html += `<div><span class="campo">Razão Social:</span><span class="valor">${data.razao_social}</span></div>`;
+    html += `<div><span class="campo">Nome Fantasia:</span><span class="valor">${data.nome_fantasia}</span></div>`;
+    if(data.atividade_principal){
+        html += `<div><span class="campo">Atividade Principal:</span><span class="valor">${data.atividade_principal.codigo} - ${data.atividade_principal.descricao}</span></div>`;
+    }
+    if(data.atividade_secundaria && data.atividade_secundaria.length){
+        html += `<div><span class="campo">Atividades Secundárias:</span><span class="valor">${data.atividade_secundaria.map(a=>a.codigo+" - "+a.descricao).join(", ")}</span></div>`;
+    }
+    if(data.situacao_cadastral) html += `<div><span class="campo">Situação:</span><span class="valor">${data.situacao_cadastral.situacao_atual}</span></div>`;
+    if(data.capital_social) html += `<div><span class="campo">Capital Social:</span><span class="valor">R$ ${data.capital_social.toLocaleString()}</span></div>`;
+    if(data.endereco){
+        html += `<div><span class="campo">Endereço:</span><span class="valor">${data.endereco.logradouro}, ${data.endereco.numero}, ${data.endereco.bairro}, ${data.endereco.municipio}-${data.endereco.uf}, CEP: ${data.endereco.cep}</span></div>`;
+    }
+    if(data.contato_telefonico && data.contato_telefonico.length){
+        html += `<div><span class="campo">Telefones:</span><span class="valor">${data.contato_telefonico.map(t=>formatarTelefone(t.completo)).join(", ")}</span></div>`;
+    }
+    if(data.contato_email && data.contato_email.length){
+        html += `<div><span class="campo">Emails:</span><span class="valor">${data.contato_email.map(e=>e.email).join(", ")}</span></div>`;
+    }
+    if(data.quadro_societario && data.quadro_societario.length){
+        html += `<div><span class="campo">Sócios:</span><span class="valor">${data.quadro_societario.map(s=>s.nome+" ("+s.qualificacao_socio+")").join("; ")} Obs: ${obs}</span></div>`;
+    }
+    html += `<div><b>Observação:</b><br><textarea data-cnpj="${data.cnpj}" oninput="salvarObservacao(this)">${obs}</textarea></div>`;
+    html += `<button class="salvar-btn" onclick='exportIndividual(${JSON.stringify(data)})'>💾 Salvar Este CNPJ</button>`;
+    html += '</div>';
+    return html;
+}
+
+function exportIndividual(data){
+    const obs = localStorage.getItem("obs_"+data.cnpj) || "";
+    const htmlContent = `
+    <!DOCTYPE html>
+    <html lang="pt-BR">
+    <head>
+    <meta charset="UTF-8">
+    <title>${data.cnpj} - HAAS</title>
+    <style>
+    body { font-family: Arial; background:#000; color:#bdb76b; padding:20px; }
+    .campo { font-weight:bold; color:#bdb76b; }
+    .valor { color:#fff; margin-left:5px; }
+    .detalhes { background:#111; padding:10px; border:1px solid #556b2f; }
+    textarea { width:100%; height:70px; background:#000; color:#bdb76b; border:1px solid #556b2f; padding:10px; font-family:monospace; font-size:14px; }
+    </style>
+    </head>
+    <body>
+    <h2>${data.razao_social || 'Não encontrado'}</h2>
+    ${criarDetalhesHTML(data)}
+    </body>
+    </html>
+    `;
+    const blob = new Blob([htmlContent], {type:"text/html"});
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `${data.cnpj}.html`;
+    a.click();
+}
+
+// Processa conteúdo colado
+async function processarConteudo(conteudo){
+    if(!conteudo) return;
+    let cnpjs = (conteudo.match(/\d{2}\.?\d{3}\.?\d{3}\/?\d{4}\-?\d{2}/g) || [])
+        .map(c=>c.replace(/\D/g,''))
+        .filter(validarCNPJ);
+
+    if(!cnpjs.length){ alert("Nenhum CNPJ válido encontrado"); return; }
+
+    const tabela = document.getElementById("tabela");
+    tabela.innerHTML = `<tr>
+        <th>CNPJ</th>
+        <th>Razão Social</th>
+        <th>Nome Fantasia</th>
+    </tr>`;
+
+    for(let cnpj of cnpjs){
+        const cnpjFormatado = formatarCNPJ(cnpj);
+
+        const tr1 = document.createElement("tr");
+        tr1.innerHTML = `<td>${cnpjFormatado}</td><td>Processando...</td><td>Processando...</td>`;
+
+        const tr2 = document.createElement("tr");
+        tr2.style.display = "none";
+        tr2.innerHTML = `<td colspan="3"><div class="detalhes">Carregando...</div></td>`;
+
+        tr1.addEventListener("click", () => {
+            if(trAberto && trAberto!==tr2){ trAberto.style.display="none"; }
+            tr2.style.display = tr2.style.display==="none"?"table-row":"none";
+            trAberto = tr2.style.display==="none"?null:tr2;
+        });
+
+        tabela.appendChild(tr1);
+        tabela.appendChild(tr2);
+
+        try {
+            const data = await consultarCNPJ(cnpj);
+            tr1.innerHTML = `<td>${cnpjFormatado}</td><td>${data.razao_social || 'Não encontrado'}</td><td>${data.nome_fantasia || 'Não encontrado'}</td>`;
+            tr2.innerHTML = `<td colspan="3">${criarDetalhesHTML(data)}</td>`;
+        } catch(e){
+            tr1.innerHTML = `<td>${cnpjFormatado}</td><td colspan="2">Erro ao consultar API</td>`;
+            console.error("Erro API:", e);
+        }
+    }
+
+    carregarObservacoes();
+}
+
+// Detecta colagem
+document.getElementById("conteudo").addEventListener("paste", async (e)=>{
+    const paste = (e.clipboardData || window.clipboardData).getData('text');
+    setTimeout(()=>processarConteudo(paste),100);
+});
+</script>
+</body>
+</html>
